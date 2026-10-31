@@ -138,6 +138,7 @@ function tickClock() {
   const doy = dayOfYear(p.year, p.month, p.day);
   const pct = Math.round((doy / total) * 100);
   document.getElementById('year-progress-pct').textContent = `${pct}%`;
+  document.getElementById('year-note').textContent = `${p.year}年も残り${total - doy}日 — 焦らず、でもそろそろ。`;
   const bar = document.getElementById('year-progress-bar');
   bar.setAttribute('aria-valuenow', String(pct));
   document.getElementById('year-progress-fill').style.width = `${pct}%`;
@@ -201,16 +202,16 @@ async function loadWeather() {
     'https://api.open-meteo.com/v1/forecast' +
     `?latitude=${ASHIKAGA.lat}&longitude=${ASHIKAGA.lon}` +
     '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code' +
-    '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code' +
+    '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,sunrise,sunset' +
     '&hourly=temperature_2m' +
-    '&timezone=Asia%2FTokyo&forecast_days=2';
+    '&timezone=Asia%2FTokyo&forecast_days=7';
 
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     renderWeather(data);
-    updated.textContent = `${jstParts().hour}:${String(jstParts().minute).padStart(2, '0')} 更新`;
+    updated.textContent = 'たった今更新';
   } catch (e) {
     body.hidden = true;
     err.hidden = false;
@@ -237,6 +238,84 @@ function renderWeather(data) {
   document.getElementById('weather-pop').textContent = pop == null ? '—' : `${pop}%`;
 
   drawSparkline(data.hourly.time, data.hourly.temperature_2m, c.temperature_2m);
+  renderWeekStrip(data.daily);
+  renderSunMoon(data.daily);
+}
+
+/* --- 週間天気 --- */
+function renderWeekStrip(daily) {
+  const strip = document.getElementById('week-strip');
+  strip.innerHTML = '';
+  const today = jstParts();
+  const todayIso = isoDate(today.year, today.month, today.day);
+  for (let i = 0; i < 7; i++) {
+    const dateStr = daily.time[i];
+    const isToday = dateStr === todayIso;
+    const [y, m, dd] = dateStr.split('-').map(Number);
+    const dow = weekdayOf(y, m, dd);
+    const code = daily.weather_code[i];
+    const [, iconKey] = WMO[code] || ['不明', 'cloud'];
+    const cell = document.createElement('div');
+    cell.className = 'week-day';
+    cell.setAttribute('aria-label', `${m}月${dd}日 ${WMO[code] ? WMO[code][0] : '不明'} 最高${Math.round(daily.temperature_2m_max[i])}度 最低${Math.round(daily.temperature_2m_min[i])}度`);
+    cell.innerHTML =
+      `<span class="dow-label${isToday ? ' is-today' : ''}">${isToday ? '今日' : WEEKDAYS_JA[dow]}</span>` +
+      ICONS[iconKey] +
+      `<span class="dow-temps"><strong>${Math.round(daily.temperature_2m_max[i])}°</strong> ${Math.round(daily.temperature_2m_min[i])}°</span>`;
+    strip.append(cell);
+  }
+}
+
+/* --- 日の出・日の入り・月齢 --- */
+function renderSunMoon(daily) {
+  const el = document.getElementById('weather-sunmoon');
+  const sunrise = daily.sunrise[0].slice(11, 16);
+  const sunset = daily.sunset[0].slice(11, 16);
+  const now = jstParts();
+  const nowMin = now.hour * 60 + now.minute;
+  const [sh, sm] = sunset.split(':').map(Number);
+  const setMin = sh * 60 + sm;
+  let sunText;
+  if (nowMin < setMin) {
+    const left = setMin - nowMin;
+    const h = Math.floor(left / 60);
+    const mm = left % 60;
+    sunText = `日の入り ${sunset}（あと${h}時間${mm}分）`;
+  } else {
+    sunText = `日の出は明日 ${sunrise}（夜なのでそろそろ寝ましょう）`;
+  }
+  const age = moonAge();
+  const name = MOON_NAMES[Math.round((age / 29.530588853) * 8) % 8];
+  el.innerHTML = `${sunText}<span class="sunmoon-moon">${moonSVG(age)} 月齢${age.toFixed(1)}・${name}</span>`;
+}
+
+/* 月齢: 2000-01-06 18:14 UTC の新月を基準に計算 */
+function moonAge(date = new Date()) {
+  const ref = Date.UTC(2000, 0, 6, 18, 14);
+  const days = (date.getTime() - ref) / 86400000;
+  return ((days % 29.530588853) + 29.530588853) % 29.530588853;
+}
+
+const MOON_NAMES = ['新月', '三日月', '上弦の月', '十三夜月', '満月', '寝待月', '下弦の月', '残月'];
+
+/* 月齢から満ち欠きの形を描く */
+function moonSVG(age) {
+  const r = 9;
+  const cx = 12;
+  const cy = 12;
+  const phase = age / 29.530588853; // 0=新月, 0.5=満月
+  const k = Math.cos(2 * Math.PI * phase); // 1=新月, -1=満月
+  const rx = Math.abs(r * k).toFixed(2);
+  const waxing = phase < 0.5;
+  const limbSweep = waxing ? 1 : 0; // 明るい側の外周
+  const termSweep = k > 0 ? limbSweep : 1 - limbSweep;
+  const lit = `<path d="M ${cx} ${cy - r} A ${r} ${r} 0 0 ${limbSweep} ${cx} ${cy + r} A ${rx} ${r} 0 0 ${termSweep} ${cx} ${cy - r} Z" fill="#e8e0c4"/>`;
+  return (
+    `<svg viewBox="0 0 24 24" aria-hidden="true">` +
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--color-surface-dynamic)"/>` +
+    (k < -0.98 ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#e8e0c4"/>` : lit) +
+    `</svg>`
+  );
 }
 
 function drawSparkline(times, temps, currentTemp) {
@@ -503,4 +582,13 @@ const QUOTES = [
   const idx = (dayOfYear(p.year, p.month, p.day) - 1) % QUOTES.length;
   document.getElementById('quote-text').textContent = `「${QUOTES[idx][0]}」`;
   document.getElementById('quote-author').textContent = `— ${QUOTES[idx][1]}`;
+}
+
+/* ---------- Service Worker（オフラインでも動くように） ---------- */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      /* サンドボックス環境などでは登録できないので、その場合は普通に動く */
+    });
+  });
 }
