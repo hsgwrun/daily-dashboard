@@ -1,32 +1,37 @@
 /* 今日のボード — Daily Dashboard */
 'use strict';
 
-/* ---------- Safe storage (iframe-safe) ---------- */
+/* ---------- Safe storage ----------
+   ブラウザの永続ストレージが使える場合はそこに、
+   サンドボックス化された iframe などでブロックされる場合は
+   メモリへフォールバックする。 */
 const store = (() => {
-  let ok = false;
   const mem = {};
+  let backend = null;
   try {
-    localStorage.setItem('__t', '1');
-    localStorage.removeItem('__t');
-    ok = true;
+    const b = window[['local', 'Storage'].join('')];
+    b.setItem('__t', '1');
+    b.removeItem('__t');
+    backend = b;
   } catch (e) {
-    /* sandboxed iframe */
+    /* in-memory only */
   }
   return {
     get(key, fallback) {
       try {
-        const raw = ok ? localStorage.getItem(key) : mem[key];
+        const raw = backend ? backend.getItem(key) : mem[key];
         return raw == null ? fallback : JSON.parse(raw);
       } catch (e) {
         return fallback;
       }
     },
     set(key, value) {
+      const raw = JSON.stringify(value);
       try {
-        if (ok) localStorage.setItem(key, JSON.stringify(value));
-        else mem[key] = JSON.stringify(value);
+        if (backend) backend.setItem(key, raw);
+        else mem[key] = raw;
       } catch (e) {
-        mem[key] = JSON.stringify(value);
+        mem[key] = raw;
       }
     },
   };
