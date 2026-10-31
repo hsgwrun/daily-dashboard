@@ -83,9 +83,9 @@ function isLeap(y) {
 }
 
 function dayOfYear(y, m, d) {
-  const cum = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const cum = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]; // cum[i] = i月の日数
   let n = d;
-  for (let i = 0; i < m - 1; i++) n += cum[i];
+  for (let i = 1; i < m; i++) n += cum[i];
   if (m > 2 && isLeap(y)) n += 1;
   return n;
 }
@@ -236,10 +236,10 @@ function renderWeather(data) {
   const pop = d.precipitation_probability_max[0];
   document.getElementById('weather-pop').textContent = pop == null ? '—' : `${pop}%`;
 
-  drawSparkline(data.hourly.time, data.hourly.temperature_2m);
+  drawSparkline(data.hourly.time, data.hourly.temperature_2m, c.temperature_2m);
 }
 
-function drawSparkline(times, temps) {
+function drawSparkline(times, temps, currentTemp) {
   const now = new Date();
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ,
@@ -257,6 +257,8 @@ function drawSparkline(times, temps) {
   if (start < 0) start = 0;
   const series = temps.slice(start, start + 25);
   if (series.length < 2) return;
+  // 「現在」の始点は実測の現在気温に合わせる（APIの現在値と時間値のずれを吸収）
+  if (typeof currentTemp === 'number') series[0] = currentTemp;
 
   const min = Math.min(...series);
   const max = Math.max(...series);
