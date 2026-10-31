@@ -117,6 +117,26 @@ function updateThemeIcon(toggle, theme) {
 }
 
 /* ---------- Clock ---------- */
+/* 時間帯ごとの小言（優しく、ほどほどに） */
+const CLOCK_NOTES = [
+  [0, 'こんな時間に起きているのは、月とあなたくらいです'],
+  [4, '早朝ですね。世界がまだ静かです'],
+  [6, '早起きですね。えらい。'],
+  [9, '今日も一日、よろしくお願いします'],
+  [12, 'お昼どき。ごはんはちゃんと食べましょう'],
+  [14, '午後のはじまり。眠くなるのは仕方ないです'],
+  [18, '夜のとばり。今日もおつかれさま'],
+  [22, 'そろそろ寝る準備を。ダッシュボードが心配しています'],
+];
+
+function clockNote(hour) {
+  let note = '';
+  for (const [start, text] of CLOCK_NOTES) {
+    if (hour >= start) note = text;
+  }
+  document.getElementById('clock-note').textContent = note;
+}
+
 function tickClock() {
   const p = jstParts();
   const hh = String(p.hour).padStart(2, '0');
@@ -133,6 +153,7 @@ function tickClock() {
   const dateText = `${p.year}年${p.month}月${p.day}日（${p.weekday}）`;
   document.getElementById('clock-date').textContent = dateText;
   document.getElementById('header-date').textContent = dateText;
+  clockNote(p.hour);
 
   const total = isLeap(p.year) ? 366 : 365;
   const doy = dayOfYear(p.year, p.month, p.day);
@@ -201,7 +222,7 @@ async function loadWeather() {
   const url =
     'https://api.open-meteo.com/v1/forecast' +
     `?latitude=${ASHIKAGA.lat}&longitude=${ASHIKAGA.lon}` +
-    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code' +
+    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day' +
     '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,sunrise,sunset' +
     '&hourly=temperature_2m' +
     '&timezone=Asia%2FTokyo&forecast_days=7';
@@ -240,6 +261,26 @@ function renderWeather(data) {
   drawSparkline(data.hourly.time, data.hourly.temperature_2m, c.temperature_2m);
   renderWeekStrip(data.daily);
   renderSunMoon(data.daily);
+  document.getElementById('weather-comment').textContent = weatherComment(
+    c.weather_code,
+    d.precipitation_probability_max[0],
+    c.is_day
+  );
+}
+
+/* 天気を見て一言 */
+function weatherComment(code, pop, isDay) {
+  if (code >= 95) return '雷が鳴っています。木の下と洗濯物は避けましょう';
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return '足元にご注意。現代人は雪に弱い';
+  const rainy = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+  if (rainy) {
+    return pop != null && pop >= 50
+      ? '雨は確定に近いです。傘を持たない日は、だいたい降ります（ほぼ経験則）'
+      : '雨です。計画は柔軟に';
+  }
+  if (pop != null && pop >= 50) return '降水確率が高めです。傘を持ってください（持たない日は降ります）';
+  if ((code === 0 || code === 1) && isDay) return '洗濯物チャンスです';
+  return '';
 }
 
 /* --- 週間天気 --- */
@@ -471,6 +512,13 @@ function saveTodos() {
   store.set('todos', todos);
   const open = todos.filter((t) => !t.done).length;
   document.getElementById('todo-count').textContent = `${todos.length}件中${open}件が未着手`;
+  updateTodoDone();
+}
+
+/* 全タスク完了のときだけ、控えめに褒める */
+function updateTodoDone() {
+  const allDone = todos.length > 0 && todos.every((t) => t.done);
+  document.getElementById('todo-done').hidden = !allDone;
 }
 
 function renderTodos() {
